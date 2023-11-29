@@ -1,24 +1,6 @@
 import axios from "axios";
 
-const baseUrl = "https://api.nf.domains";
-
-// getNFDByName
-// - returns the NFD record for the given name
-const getNFDByName = async (name) => {
-  const response = await axios.get(`${baseUrl}/nfd/${name}`);
-  return response.data;
-};
-
-// getNFDByAddress
-// - returns the NFD record for the given address
-const getNFDByAddress = async (address) => {
-  const response = await axios.get(`${baseUrl}/nfd/lookup`, {
-    params: {
-      address,
-    },
-  });
-  return response.data;
-};
+// utils
 
 // chunkArray
 // - splits an array into chunks of the given size
@@ -30,7 +12,45 @@ const chunkArray = (myArray, chunk_size) => {
   return results;
 };
 
-const getNFDByAddressBatch = async (data) => {
+const nfds = new Map();
+
+const baseUrl = "https://api.nf.domains";
+
+// getNFDByName
+// - returns the NFD record for the given name
+const getNFDByName = async (name) => {
+  if (nfds.has(name)) {
+    return nfds.get(name);
+  }
+  const response = await axios.get(`${baseUrl}/nfd/${name}`);
+  const nfd = response.data;
+  nfds.set(name, nfd);
+  return nfd;
+};
+
+// getNFDByAddress
+// - returns the NFD record for the given address
+const getNFDByAddress = async (address) => {
+  if (nfds.has(address)) {
+    return nfds.get(address);
+  }
+  const response = await axios.get(`${baseUrl}/nfd/lookup`, {
+    params: {
+      address,
+    },
+  });
+  const nfd = response.data;
+  nfds.set(address, nfd);
+  return nfd;
+};
+
+const getNFDByAddressBatch = async (data, opts = { onError: () => {} }) => {
+  const dataSet = Array.from(new Set(data));
+  dataSet
+    .filter((x) => !nfds.has(x))
+    .forEach((key) => {
+      nfds.set(key, null);
+    });
   const chunkSize = 20; // length of address must be lesser or equal than 20
   const addressChunks = chunkArray(data, chunkSize);
   const results = await Promise.all(
@@ -46,9 +66,7 @@ const getNFDByAddressBatch = async (data) => {
       return axios
         .get(url)
         .then(({ data }) => data)
-        .catch((error) =>
-          console.error("Error fetching additional data:", error)
-        );
+        .catch(opts.onError || console.error);
     })
   );
   // results is an object or undefined
@@ -56,11 +74,19 @@ const getNFDByAddressBatch = async (data) => {
   const finalResult = results.reduce((acc, result) => {
     return { ...acc, ...result };
   }, {});
+  Object.entries(finalResult).forEach(([key, value]) => {
+    nfds.set(key, value);
+  });
   return finalResult;
+};
+
+const getNFDs = () => {
+  return Object.fromEntries(nfds.entries());
 };
 
 export default {
   getNFDByName,
   getNFDByAddress,
   getNFDByAddressBatch,
+  getNFDs,
 };
